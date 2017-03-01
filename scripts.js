@@ -1,7 +1,3 @@
-//---------------------------------------------
-// * CONES *
-//---------------------------------------------
-
 var doc = document;
 var canvas = doc.querySelector('#canvas');
 var ctx = canvas.getContext('2d');
@@ -14,7 +10,7 @@ canvas.height = height;
 //---------------------------------------------
 
 var maxSectionsInput = doc.querySelector('.js-maxSections');
-var maxWidthInput = doc.querySelector('.js-maxWidth');
+var maxHeightInput = doc.querySelector('.js-maxHeight');
 var controls = doc.querySelector('.controls');
 var randomBtn = doc.querySelector('.js-random');
 var downloadBtn = doc.querySelector('.js-download');
@@ -23,9 +19,9 @@ var downloadBtn = doc.querySelector('.js-download');
 
 var treeHeight = height * 1.5;
 var maxSections = 5;
-var minLineWidth = 1;
-var maxLineWidth = 70;
-var space = 300;
+var minLineWidth = 3;
+var maxLineWidth = 40;
+var space = 600;
 
 var sectionLength = 0;
 var rowLength = 0;
@@ -105,6 +101,8 @@ function Branch(params) {
   this.type = params.type;
   this.left = params.left;
   this.bottom = params.bottom;
+  this.bottomRight = params.bottomRight || this.bottom;
+  this.bottomLeft = params.bottomLeft || this.bottom;
   this.max = params.max;
   this.level = params.level;
   this.currentStep = 1;
@@ -112,7 +110,6 @@ function Branch(params) {
   // Branch angle
   this.angle = params.angle || 0;
   // Branch direction
-  this.side = params.side || '';
   this.maxLineWidth = params.maxLineWidth || maxLineWidth;
   this.lineStep = Math.round((this.maxLineWidth - minLineWidth) / this.max * 100) / 100;
   this.halfLineStep = this.lineStep / 2;
@@ -122,6 +119,9 @@ function Branch(params) {
 
   this.sectionStart = {
     left: this.left,
+    right: params.right || this.left + this.maxLineWidth,
+    bottomRight: this.bottomRight,
+    bottomLeft: this.bottomLeft,
     bottom: this.bottom,
     width: this.maxLineWidth
   };
@@ -139,16 +139,23 @@ Branch.prototype.endPoint = function () {
   var Arad = this.angle * Math.PI / 180;
   var a = Math.round(Math.sin(Arad) * this.sectionLength);
   var b = Math.round(Math.cos(Arad) * this.sectionLength);
+
   return {x: b, y: a};
 };
 
 //---------------------------------------------
 
-Branch.prototype.copyEndToStart = function () {
-  for(var key in this.sectionEnd) {
-    var newKey = key === 'top' ? 'bottom' : key;
-    this.sectionStart[newKey] = this.sectionEnd[key];
+// It fixes too thin lines at the end of sections
+Branch.prototype.endPointCorrect = function () {
+  if (this.angle === 0){
+    return {x: 0, y: 0};
   }
+
+  var Arad = this.angle * Math.PI / 180;
+  var a = Math.round(Math.sin(Arad) * this.sectionEnd.width);
+  var b = Math.round(Math.cos(Arad) * this.sectionEnd.width);
+
+  return {x: b, y: a};
 };
 
 //---------------------------------------------
@@ -156,122 +163,135 @@ Branch.prototype.copyEndToStart = function () {
 Branch.prototype.drawSection = function() {
 
   var type = this.angle ? '/' : '|';
-  if (this.side === 'left') {
-    type = '\\';
-  }
 
   this.colorPos = getColorPos(this.colorPos);
   this.color = colors[this.colorPos];
   ctx.fillStyle = this.color;
 
-  // console.group('Step: ', this.currentStep, type);
-  // console.log('%c' + this.color, 'background:' + this.color);
-  // console.groupEnd();
+  this.sectionLength = rand(sectionLength/3, sectionLength);
 
-  if ( this.sectionEnd.top ) {
-    this.copyEndToStart();
-  }
-
-  this.sectionLength = rand(sectionLength/3,sectionLength);
   if (this.level === 0 ){
-    this.sectionLength = rand(sectionLength/2,sectionLength * 1.5);
+    this.sectionLength = rand(sectionLength/2, sectionLength * 1.2);
   }
   this.branchOffset = this.sectionLength / 2;
 
-  var endCoords = this.endPoint();
-  if (this.side === 'left') {
-    endCoords.x = -endCoords.x;
-  }
-
   this.sectionEnd.width = this.sectionStart.width - this.lineStep;
-  if (this.sectionEnd.width < minLineWidth) {
-    this.sectionEnd.width = minLineWidth;
-  }
+
+  var endCoords = this.endPoint();
+  var endCoordCorrect = this.endPointCorrect();
 
   this.sectionEnd.left = this.sectionStart.left + endCoords.x  + this.halfLineStep;
   this.sectionEnd.right = this.sectionEnd.left + this.sectionEnd.width;
   this.sectionEnd.top = this.sectionStart.bottom - this.sectionLength;
+  //For straight branch
+  this.sectionEnd.topRight = this.sectionEnd.top;
+  this.sectionEnd.topLeft = this.sectionEnd.top;
 
   if (this.angle) {
     this.sectionEnd.top = this.sectionStart.bottom - endCoords.y;
+    this.sectionEnd.topRight = this.sectionEnd.top;
+    this.sectionEnd.topLeft = this.sectionEnd.top;
+
+    // Tried to fix to thin lines on big angles and failed
+    if (this.angle > 90) { // left
+      // console.log('%c \\ left: ' + this.angle, 'background: ' + this.color);
+      // this.sectionEnd.topLeft -= endCoordCorrect.y;
+      // this.sectionEnd.left -= endCoordCorrect.x;
+    }
+    else { // right
+      // console.log('%c / right: ' + this.angle, 'background: ' + this.color);
+      // this.sectionEnd.topRight -= endCoordCorrect.y;
+      // this.sectionEnd.right -= endCoordCorrect.x;
+    }
   }
 
   var d = [ 'M',
-            this.sectionStart.left, this.sectionStart.bottom, // bottom left
-            this.sectionStart.left + this.sectionStart.width, this.sectionStart.bottom, // bottom right
-            this.sectionEnd.right, this.sectionEnd.top,  //top right
-            this.sectionEnd.left, this.sectionEnd.top, // top left
+            this.sectionStart.left, this.sectionStart.bottomLeft, // bottom left
+            this.sectionStart.right, this.sectionStart.bottomRight, // bottom right
+            this.sectionEnd.right, this.sectionEnd.topRight,  //top right
+            this.sectionEnd.left, this.sectionEnd.topLeft, // top left
             'Z'
+          ].join(' ');
+
+  var path = new Path2D(d);
+  ctx.fill(path);
+
+  // Add branches
+  if (this.level < maxSections) {
+    this.level++;
+
+    var maxBranches = this.level <= 1 ? 1 : rand(0,2);
+    var midAngle = rand(80,110);
+    var fullAngle = rand(50,130);
+    var startAngle = midAngle - fullAngle / 2;
+    var stepAngle = fullAngle / maxBranches;
+
+    for (var i = 0; i <= maxBranches; i++) {
+      var currenAngle = startAngle + stepAngle * i;
+
+      var branch = new Branch({
+        type: '/',
+        left: this.sectionEnd.left,
+        right: this.sectionEnd.right,
+        bottom: this.sectionEnd.top,
+        bottomRight: this.sectionEnd.topRight,
+        bottomLeft: this.sectionEnd.topLeft,
+        maxLineWidth: this.sectionEnd.width,
+        maxSectionLength: this.sectionLength,
+        max: 2,
+        angle: currenAngle,
+        level: this.level
+      });
+    }
+  }
+
+  // Circles
+  this.addCircles();
+};
+
+//---------------------------------------------
+
+Branch.prototype.addCircles = function () {
+  var circLevel = this.level === 1 ? 1.4 : this.level;
+
+  var circParams = {
+    x: this.sectionEnd.right - this.sectionEnd.width/2,
+    y: this.sectionEnd.top,
+    color: this.color
+  };
+
+  for (var i = 5; i >= 1; i--) {
+    circParams.r = this.sectionEnd.width * (i * circLevel)/10;
+
+    if(i < 5) {
+      if(i % 2 === 0){
+        circParams.color = 'black';
+      }
+      else {
+        this.colorPos = getColorPos(this.colorPos);
+        circParams.color = colors[this.colorPos];
+      }
+    }
+
+    drawArc(circParams);
+  }
+}
+
+//---------------------------------------------
+
+function drawTrees() {
+
+  ctx.fillStyle = 'black';
+  var d = [ 'M',
+            0, 0,
+            width, 0,
+            width, height,
+            0, height
           ].join(' ');
 
   var p = new Path2D(d);
   ctx.fill(p);
 
-  // Add branches
-  if (this.level < maxSections) {
-    var angles = {
-      left: rand(25,90),
-      right: rand(25,90)
-    };
-
-    this.level++;
-
-    var branch1 = new Branch({
-      type: '/',
-      left: this.sectionEnd.left,
-      bottom: this.sectionEnd.top,
-      maxLineWidth: this.sectionEnd.width,
-      maxSectionLength: this.sectionLength,
-      max: 2,
-      angle: angles.left,
-      side: 'left',
-      level: this.level
-    });
-
-    var branch1 = new Branch({
-      type: '/',
-      left: this.sectionEnd.left,
-      bottom: this.sectionEnd.top,
-      maxLineWidth: this.sectionEnd.width,
-      maxSectionLength: this.sectionLength,
-      max: 2,
-      angle: angles.right,
-      side: 'right',
-      level: this.level
-    });
-  }
-
-  // Circles
-  var circParams = {
-    x: this.sectionEnd.right - this.sectionEnd.width/2,
-    y: this.sectionEnd.top,
-    r: this.sectionEnd.width * (5 * this.level)/10,
-    color: this.color
-  };
-  drawArc(circParams);
-
-  circParams.r = this.sectionEnd.width * (4 * this.level)/10;
-  circParams.color = 'black';
-  drawArc(circParams);
-
-  circParams.r = this.sectionEnd.width * (3 * this.level)/10;
-  this.colorPos = getColorPos(this.colorPos);
-  circParams.color = colors[this.colorPos];
-  drawArc(circParams);
-
-  circParams.r = this.sectionEnd.width * (2 * this.level)/10;
-  circParams.color = 'black';
-  drawArc(circParams);
-
-  circParams.r = this.sectionEnd.width * (1 * this.level)/10;
-  this.colorPos = getColorPos(this.colorPos);
-  circParams.color = colors[this.colorPos];
-  drawArc(circParams);
-};
-
-//---------------------------------------------
-
-function drawCones() {
   for (var i = 0; i < rowLength; i++) {
     var left = i * (maxLineWidth + xOffset) + xOffset;
 
@@ -288,18 +308,21 @@ function drawCones() {
 //---------------------------------------------
 
 function rand(min, max) {
-  return Math.round(Math.random() *(max - min) + min);
+  return Math.round(Math.random() *(max - min)) + min;
 }
 
 function randomizeVals() {
-  maxSections = rand(maxSectionsInput.min, maxSectionsInput.max);
+  maxSections = rand(+maxSectionsInput.min, +maxSectionsInput.max);
   maxSectionsInput.value = maxSections;
 
-  maxLineWidth = rand(maxWidthInput.min, maxWidthInput.max);
-  maxWidthInput.value = maxLineWidth;
+  var min = +maxHeightInput.min;
+  var max = +maxHeightInput.max;
+  var heightIndex = Math.round(Math.random() *(max - min)* 10)/10  + min;
+  treeHeight = height * heightIndex;
+  maxHeightInput.value = heightIndex;
 
   calcVars();
-  drawCones();
+  drawTrees();
 }
 
 //---------------------------------------------
@@ -307,13 +330,13 @@ function randomizeVals() {
 function maxSectionsChange() {
   maxSections = +this.value;
   calcVars();
-  drawCones();
+  drawTrees();
 }
 
-function maxWidthChange() {
-  maxLineWidth = +this.value;
+function maxHeightChange() {
+  treeHeight = +this.value * height;
   calcVars();
-  drawCones();
+  drawTrees();
 }
 
 //---------------------------------------------
@@ -325,10 +348,10 @@ function download() {
 
 //---------------------------------------------
 
-drawCones();
+drawTrees();
 
 maxSectionsInput.addEventListener('input', maxSectionsChange);
-maxWidthInput.addEventListener('input', maxWidthChange);
+maxHeightInput.addEventListener('input', maxHeightChange);
 
 randomBtn.addEventListener('click', randomizeVals);
 downloadBtn.addEventListener('click', download);
